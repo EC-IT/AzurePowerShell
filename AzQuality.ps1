@@ -1,5 +1,5 @@
 ﻿# MPE - 2019 2020 2021
-# Run : AzQualityInstall   and    AzQualityCheck
+# Usage Run : AzQualityInstall   and    AzQualityCheck
 Import-Module Az.Accounts, Az.RecoveryServices, Az.Compute, Az.Websites, Az.Resources, Az.Automation, Az.OperationalInsights, Az.Network, Az.Sql
 
 
@@ -289,7 +289,7 @@ function checkIPunattached()
 
 function checkVMmontiored()
 {    
-    Write-Title "VM sans l'agent Monitoring : "
+    Write-Title "VM without Monitoring Agent : "
 
     foreach ($vm in $listvm) {
         if ( $($vm.Extensions.id -match "MicrosoftMonitoringAgent").Count -eq 0 )
@@ -304,7 +304,7 @@ function checkVMmontiored()
 #
 function checkVMuncrypted()
 {    
-    Write-Title "VM sans l'agent de chiffrement : "
+    Write-Title "VM without Encryption Agent : "
     foreach ($vm in $listvm) {
         if ( $($vm.Extensions.id -match "AzureDiskEncryption").Count -eq 0 )
         {
@@ -318,7 +318,7 @@ function checkVMuncrypted()
 #
 function checkVMzone()
 {    
-    Write-Title "VM sans Zone :"
+    Write-Title "VM without Zone :"
 
     foreach ($vm in $listvm) {
         if ( $vm.Zones.Count -eq 0 )
@@ -335,7 +335,7 @@ function checkVMzone()
 function checkSnapshot()
 {
     
-    Write-Title "Listes des snapshots :"
+    Write-Title "Snapshots :"
     $sslist = Get-AzSnapshot
 
     $sslist.Name
@@ -346,7 +346,7 @@ function checkSnapshot()
 
 function checkAzureCert()
 {
-    Write-Title "Certificat Azure qui expire :"
+    Write-Title "Azure Certificate expiring :"
 
     $listautomation = Get-AzAutomationAccount
     foreach ( $AutomationAccount in $listautomation)
@@ -367,7 +367,7 @@ function checkAzureCert()
 #
 function checkElasticPool()
 {    
-    Write-Title "Azure SQL Database hors SQL elastic pool :"
+    Write-Title "Azure SQL Database outside SQL elastic pool :"
 
     $SqlServerList = Get-AzSqlServer
 
@@ -393,7 +393,7 @@ function checkElasticPool()
 #
 function checkAppServicesCert()
 {
-    Write-Title "Certificat AppService qui expire :"
+    Write-Title "AppService Certificat expiring :"
 
     # Liste les ceritifcats
     $AzWebAppCertificate = Get-AzWebAppCertificate
@@ -436,7 +436,7 @@ function check-StorageAccount()
         $liste_sa_param+=$sa_param
     }
 
-    Write-Host -ForegroundColor White  -BackgroundColor DarkBlue "Compte de stockage sans parfeu :"
+    Write-Host -ForegroundColor White  -BackgroundColor DarkBlue "StorageAccount without FireWall :"
     foreach($sa in $liste_sa_param)
     {
 
@@ -446,7 +446,7 @@ function check-StorageAccount()
         }
     }
 
-    Write-Host -ForegroundColor White  -BackgroundColor DarkBlue "Compte de stockage sans HTTPS :"
+    Write-Host -ForegroundColor White  -BackgroundColor DarkBlue "StorageAccount without HTTPS only :"
     foreach($sa in $liste_sa_param)
     {
 
@@ -456,7 +456,7 @@ function check-StorageAccount()
         }
     }
 
-    Write-Host -ForegroundColor White  -BackgroundColor DarkBlue "Compte de stockage sans TLS 1.2 :"
+    Write-Host -ForegroundColor White  -BackgroundColor DarkBlue "StorageAccount without minimum TLS 1.2 :"
     foreach($sa in $liste_sa_param)
     {
 
