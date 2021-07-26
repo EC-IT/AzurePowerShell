@@ -1,4 +1,4 @@
-﻿# MPE - 2019 2020 2021
+# MPE - 2019 2020 2021
 # Usage Run : AzQualityInstall   and    AzQualityCheck
 Import-Module Az.Accounts, Az.RecoveryServices, Az.Compute, Az.Websites, Az.Resources, Az.Automation, Az.OperationalInsights, Az.Network, Az.Sql
 
@@ -140,6 +140,74 @@ function checkVMLock()
     }
 
 }
+
+#
+##### RG SANS VERROU #####
+#
+
+function checkRGLock()
+{    
+    Write-Title "RessourceGroup without Lock :" 
+
+    $rg_list = Get-AzResourceGroup
+
+    # pour chaque RG...
+    foreach ( $ResourceGroup in $rg_list )
+    {
+        # ... recupere les verrous
+        $locks = Get-AzResourceLock -ResourceGroupName $ResourceGroup.ResourceGroupName
+        
+        $list_lock = @()
+        # recherche les verrous qui portent sur tout le RG
+        foreach ( $lock in $locks )
+        {
+            # Si le verrou est sur le ressource group
+            if ( $lock.ResourceType -like 'Microsoft.Authorization/locks')
+            {
+                $list_lock += $lock
+            }
+        }
+        
+        # Si aucun verrou ne porte sur tout le RG
+        if ( $list_lock.Count -eq 0 )
+        {
+            Write-Host $ResourceGroup.ResourceGroupName -BackgroundColor Red            
+        }
+    }
+}
+#
+##### VM SANS AcceleratedNetwork #####
+#
+
+function checkVMAcceleratedNetwork()
+{    
+    Write-Title "VM without AcceleratedNetwork :" 
+
+    # recupere la liste des modeles
+    $listsize = Get-AzVMSize -Location 'West Europe'
+
+    # pour chaque VM...
+    foreach ( $vm in $listvm )
+    {
+            # ... recupere le verrou
+        $nicname = $vm.NetworkProfile.NetworkInterfaces.Id.Split('/')[8]
+        $rg = $vm.ResourceGroupName
+        $nic=Get-AzNetworkInterface -Name $nicname 
+        
+        # nombre CPU 
+        $size = $vm.HardwareProfile
+        $vmsize = $listsize | ?{ $_.Name -eq $size.VmSize }
+        $cpuCores = [int]$vmsize.NumberOfCores
+    
+        # si AcceleratedNetwork n'est pas
+        if ( ($nic.EnableAcceleratedNetworking -ne "True" )  -and ($cpuCores -gt 2) )
+        {
+            Write-Host $vm.Name -BackgroundColor Red
+        }
+    }
+
+}
+
     #
     ##### VM SANS MAJ AUTO #####
     #
@@ -483,12 +551,14 @@ function AzQualityCheck()
     checkVMupdate
     checkVMloganalytics
     checkVMmontiored
+    checkVMAcceleratedNetwork
     checkVMzone
     checkDiskUnattached
     checkNICunattached
     checkIPdynamic
     checkIPunattached
     checkSnapshot
+    checkRGLock
     checkAzureCert
     checkElasticPool
     checkAppServicesCert
