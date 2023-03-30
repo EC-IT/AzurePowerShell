@@ -1,11 +1,11 @@
 # MPE - 2019 2020 2021
 # Usage Run : AzQualityInstall   and    AzQualityCheck
-Import-Module Az.Accounts, Az.RecoveryServices, Az.Compute, Az.Websites, Az.Resources, Az.Automation, Az.OperationalInsights, Az.Network, Az.Sql
+Import-Module Az.Accounts, Az.RecoveryServices, Az.Compute, Az.Websites, Az.Resources, Az.Automation, Az.OperationalInsights, Az.Network, Az.Sql  #, Az.ApplicationInsights
 
 
 function AzQualityInstall()
 {
-    Install-Module Az.Accounts, Az.RecoveryServices, Az.Compute, Az.Websites, Az.Resources, Az.Automation, Az.OperationalInsights, Az.Network, Az.Sql
+    Install-Module Az.Accounts, Az.RecoveryServices, Az.Compute, Az.Websites, Az.Resources, Az.Automation, Az.OperationalInsights, Az.Network, Az.Sql  #, Az.ApplicationInsights
 }
 
 $global:backupdetails = @()
@@ -39,7 +39,7 @@ function Get-All-Backup-Details() {
 function checkBackupVM()
 {
     
-    Write-Title "VM sans sauvegardes : "
+    Write-Title "VM without backup : "
 
     # recupere la liste des VM sauvegardee
     Get-All-Backup-Details
@@ -50,11 +50,15 @@ function checkBackupVM()
     # pour chaque VM...
     foreach ( $vm in $listvm.Name )
     {
+
+    if ( $vm -notlike "*TEST*" )
+    {
         # ...si elle n'est pas sauvegardee : affiche le nom
         if ( ! $global:vmbkp.vm.Contains($vm) )
         {
             Write-Host $vm -BackgroundColor Red
         }
+    }
     }
 
 }
@@ -64,11 +68,11 @@ function AppServiceNoBackup
 {
     Param($ResourceGroupName, $Name)
 
-    $backup = Get-AzWebAppBackupList  -ResourceGroupName $ResourceGroupName -Name $Name
+    $backup = Get-AzWebAppBackupList -ResourceGroupName $ResourceGroupName -Name $Name
     
     if ( $backup.Count -eq 0 )
     {    
-        Write-Host $app.Name  -BackgroundColor Red
+        Write-Host $app.Name  #-BackgroundColor Red
     }
 }
 
@@ -77,18 +81,21 @@ function AppServiceNoBackup
 #
 function checkAppServiceBackup
 {    
-    Write-Title "App Service sans sauvegardes : "
+    Write-Title "App Service without backup : "
 
     $asp= Get-AzAppServicePlan # -ResourceGroupName $ResourceGroupName
     foreach( $AppPlan in $asp )
     {
-        $apps=Get-AzWebApp -AppServicePlan $AppPlan
 
-        Foreach($app in $apps) 
-        { 
-            AppServiceNoBackup  -ResourceGroupName $app.ResourceGroup -Name $app.Name    
+        if ( $AppPlan.Sku.Capacity -ne 0 )
+        {
+            $apps=Get-AzWebApp -AppServicePlan $AppPlan
+            Foreach($app in $apps) 
+            { 
+                AppServiceNoBackup  -ResourceGroupName $app.ResourceGroup -Name $app.Name    
+            }
         }
-    }    
+    }     
 }
 
 
@@ -125,20 +132,32 @@ function checkVMcrypted()
 function checkVMLock()
 {    
     Write-Title "VM No Lock :" 
+    
+    if ( !$listvm ) { $global:listvm = Get-AzVM }
 
-    # pour chaque VM...
+    # pour chaque VM
     foreach ( $vm in $listvm )
     {
-        # ... recupere le verrou
-        $lockvm = Get-AzResourceLock -ResourceName $vm.Name -ResourceGroupName $vm.ResourceGroupName -ResourceType "Microsoft.Compute/virtualMachines"
-    
-        # si le verrou n'existe pas : afficher le nom de la VM
-        if ( ! $lockvm  )
-        {
-            Write-Host $vm.Name -BackgroundColor Red
+        # recupere les verrous
+        $locks = Get-AzResourceLock -ResourceName $vm.Name -ResourceGroupName $vm.ResourceGroupName -ResourceType 'Microsoft.Compute/virtualMachines'
+        
+        # recupere les verrous specifique a la VM
+        $list_lock = @()    
+        foreach ( $lock in $locks)
+        {            
+            # Si le verrou est sur la VM
+            if ( $lock.ResourceType -like 'Microsoft.Compute/virtualMachines')
+            {
+                $list_lock += $lock
+            }
         }
+        
+        # Si aucun verrou sur la VM
+        if ( $list_lock.Count -eq 0 ) 
+        {
+            $vm.Name
+        }        
     }
-
 }
 
 #
@@ -171,7 +190,10 @@ function checkRGLock()
         # Si aucun verrou ne porte sur tout le RG
         if ( $list_lock.Count -eq 0 )
         {
-            Write-Host $ResourceGroup.ResourceGroupName -BackgroundColor Red            
+            if ( $ResourceGroup.ResourceGroupName -notlike "AzureBackupRG_*" )
+            {
+                Write-Host $ResourceGroup.ResourceGroupName -BackgroundColor Red            
+            }
         }
     }
 }
@@ -270,10 +292,14 @@ function checkVMloganalytics()
     # pour chaque VM...
     foreach ( $vm in $listvm )
     { 
-        # si la VM n'est pas presente dans les logs : afficher son nom
-        if ( ! $($VMconnect -match $vm.Name)  )
+    
+        if ( $vm.StorageProfile.OsDisk.OsType -eq "Windows"  )
         {
-            Write-Host $vm.Name -BackgroundColor Red
+            # si la VM n'est pas presente dans les logs : afficher son nom
+            if ( ! $($VMconnect -match $vm.Name)  )
+            {
+                Write-Host $vm.Name -BackgroundColor Red
+            }
         }
     }
 }
@@ -308,9 +334,12 @@ function checkNICunattached()
 
     foreach ($md in $managedDisks) {
     
-        if( ($md.VirtualMachine -eq $null) -and ($md.IpConfigurations.Name -inotmatch "privateEndpoint" ) ) {
+        if ( $md.Name -notlike "anf*") 
+        {
+            if(  ($md.VirtualMachine -eq $null) -and ($md.IpConfigurations.Name -inotmatch "privateEndpoint" )  ) {
                     
-                Write-Host  $($md.Name) -BackgroundColor Red
+                    Write-Host  $($md.Name) -BackgroundColor Red
+            }
         }
      } 
  }
@@ -360,7 +389,8 @@ function checkVMmontiored()
     Write-Title "VM without Monitoring Agent : "
 
     foreach ($vm in $listvm) {
-        if ( $($vm.Extensions.id -match "MicrosoftMonitoringAgent").Count -eq 0 )
+        #if ( $($vm.Extensions.id -match "MicrosoftMonitoringAgent").Count -eq 0 )
+        if ( $($vm.Extensions.id -like "*Agent*").Count -eq 0 )
         {
             Write-Host $vm.Name -BackgroundColor Red
         }
@@ -374,9 +404,12 @@ function checkVMuncrypted()
 {    
     Write-Title "VM without Encryption Agent : "
     foreach ($vm in $listvm) {
-        if ( $($vm.Extensions.id -match "AzureDiskEncryption").Count -eq 0 )
+        if ( $vm.StorageProfile.OsDisk.OsType -eq "Windows"  )
         {
-            Write-Host $vm.Name -BackgroundColor Red
+            if ( $($vm.Extensions.id -match "AzureDiskEncryption").Count -eq 0 )
+            {
+                Write-Host $vm.Name -BackgroundColor Red
+            }
         }
     }
 }
@@ -448,7 +481,7 @@ function checkElasticPool()
         foreach ( $db in $dbppd )
         {
             # si aucun pool : afficher le nom
-              if ( ! $db.ElasticPoolName )
+              if ( (! $db.ElasticPoolName ) -and ( $db.DatabaseName -ne "master"  )  )
               {
                 Write-Host $db.DatabaseName  -BackgroundColor Red
               }
@@ -488,36 +521,38 @@ function checkAppServicesCert()
 function check-StorageAccount()
 {
     # liste SA
-    $list_sa = Get-AzStorageAccount
+    #$list_sa = Get-AzStorageAccount
+    $sas = Get-AzStorageAccount
 
     # Pour chaque SA recupe Firewall HTTPS TLS
-    $liste_sa_param = @()
-    foreach ($sa in $list_sa)
-    {
-        $sa_param = "" | select StorageAccountName,FWDefaultAction,FWIpRules,EnableHttpsTrafficOnly,MinimumTlsVersion
-        $sa_param.StorageAccountName = $sa.StorageAccountName
-        $sa_param.FWDefaultAction = $sa.NetworkRuleSet.DefaultAction
-        $sa_param.FWIpRules = $sa.NetworkRuleSet.IpRules.Count
-        $sa_param.EnableHttpsTrafficOnly = $sa.EnableHttpsTrafficOnly
-        $sa_param.MinimumTlsVersion = $sa.MinimumTlsVersion
-    
-        $liste_sa_param+=$sa_param
-    }
+#    $liste_sa_param = @()
+#    foreach ($sa in $list_sa)
+#    {
+#        $sa_param = "" | select StorageAccountName,FWDefaultAction,FWIpRules,EnableHttpsTrafficOnly,MinimumTlsVersion
+#        $sa_param.StorageAccountName = $sa.StorageAccountName
+#        $sa_param.FWDefaultAction = $sa.NetworkRuleSet.DefaultAction
+#        $sa_param.FWIpRules = $sa.NetworkRuleSet.IpRules.Count
+#        $sa_param.EnableHttpsTrafficOnly = $sa.EnableHttpsTrafficOnly
+#        $sa_param.MinimumTlsVersion = $sa.MinimumTlsVersion
+#    
+#        $liste_sa_param+=$sa_param
+#    }
 
     Write-Host -ForegroundColor White  -BackgroundColor DarkBlue "StorageAccount without FireWall :"
-    foreach($sa in $liste_sa_param)
+    #foreach($sa in $liste_sa_param)
+    foreach($sa in $sas)
     {
-
-        if ( $sa.FWDefaultAction -eq "Allow" )
+        #if ( $sa.FWDefaultAction -eq "Allow" )
+        if ( $sa.NetworkRuleSet.DefaultAction -eq "Allow" )
         {        
                 Write-Host $sa.StorageAccountName -BackgroundColor Red
         }
     }
 
     Write-Host -ForegroundColor White  -BackgroundColor DarkBlue "StorageAccount without HTTPS only :"
-    foreach($sa in $liste_sa_param)
+    #foreach($sa in $liste_sa_param)
+    foreach($sa in $sas)
     {
-
         if ( $sa.EnableHttpsTrafficOnly -ne "True" )
         {        
                 Write-Host $sa.StorageAccountName -BackgroundColor Red
@@ -525,15 +560,119 @@ function check-StorageAccount()
     }
 
     Write-Host -ForegroundColor White  -BackgroundColor DarkBlue "StorageAccount without minimum TLS 1.2 :"
-    foreach($sa in $liste_sa_param)
+    #foreach($sa in $liste_sa_param)
+    foreach($sa in $sas)
     {
-
         if ( $sa.MinimumTlsVersion -ne "TLS1_2" )
         {        
                 Write-Host $sa.StorageAccountName -BackgroundColor Red
         }
     }
+    
+    Write-Host -ForegroundColor White  -BackgroundColor DarkBlue "SA with public BLOB Access :"
+   # foreach ( $sa in $list_sa  )
+    foreach ( $sa in $sas  )
+    {
+        if ( $sa.AllowBlobPublicAccess )
+        {
+            $sa.StorageAccountName
+        }
+    }
 }
+
+
+#
+##### LISTE LES PRIVATE ENDPOINT EN ERR #####
+#
+function checkPrivateEndpoint()
+{    
+    Write-Title "Private Endpoint in error :"
+    
+    $pes = Get-AzPrivateEndpoint
+    foreach($pe in $pes)
+    {
+        if ( $pe.ProvisioningState -notlike "Succeeded" )
+        {
+            Write-Host $pe.Name -BackgroundColor Red
+        }
+    }
+}
+
+#
+##### LISTE RG VIDE #####
+#
+function Get-EmptyResourceGroup()
+{
+    $rg_list = Get-AzResourceGroup
+
+    Write-Title "Empty ResourceGroup :"
+
+    foreach ( $rg in $rg_list )
+    {
+        if ( $(Get-AzResource -ResourceGroupName $rg.ResourceGroupName).Count -eq 0 )
+        {
+            $rg.ResourceGroupName
+        }
+    }
+}
+#
+##### LISTE APP PLAN VIDE #####
+#
+function Get-EmptyAppServicePlan()
+{
+    $plans = Get-AzAppServicePlan
+    
+    Write-Title "Empty AppPlan :"
+
+    foreach ( $plan in $plans )
+    {
+        $apps = Get-AzWebApp -AppServicePlan $plan
+        if ( $apps.Count -eq 0 )
+        {
+            $plan.Name
+
+        }
+    }
+}
+
+#
+##### LISTE APP ARRETE #####
+#
+function Get-StoppedWebApp()
+{
+    $apps = Get-AzWebApp
+
+    Write-Title "Stopped WebApps :"
+
+    foreach ( $app in $apps )
+    {
+        if ( $app.State -ne "Running" )
+        {
+            echo "$($app.Name)`t$($app.ResourceGroup)"
+        }
+    }
+}
+
+#
+##### PRIVATE ENDPOINT DISCONNECTED #####
+#
+function Get-PrivateEndpointError()
+{
+    $pe_list = Get-AzPrivateEndpoint
+
+    Write-Title "PrivateEndpoint disconnected : "
+
+    foreach ( $pe in $pe_list )
+    {
+        if ( $pe.PrivateLinkServiceConnections[0].PrivateLinkServiceConnectionState.Status -ne "Approved" )
+        {
+            $pe.Name 
+        }
+    }
+}
+
+
+
 
 function AzQualityCheck()
 {          
@@ -543,7 +682,7 @@ function AzQualityCheck()
 
     if ( $global:listvm.Count -lt 1 ) { return 1; }
 
-    checkAppServiceBackup
+    #checkAppServiceBackup
     checkBackupVM
     checkVMuncrypted
     checkVMcrypted
@@ -563,5 +702,9 @@ function AzQualityCheck()
     checkElasticPool
     checkAppServicesCert
     check-StorageAccount
-
+    checkPrivateEndpoint
+    Get-EmptyResourceGroup
+    Get-EmptyAppServicePlan
+    Get-StoppedWebApp
+    Get-PrivateEndpointError
 }
